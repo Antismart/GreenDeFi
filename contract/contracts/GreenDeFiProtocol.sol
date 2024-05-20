@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+import "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import "@chainlink/contracts/src/v0.8/ChainlinkClient.sol";
 import "@chainlink/contracts/src/v0.8/Chainlink.sol";
 
@@ -53,11 +53,11 @@ contract GreenDeFiProtocol is AccessControl, ERC20, ChainlinkClient {
     uint256 private fee;
 
     constructor(address _oracle, string memory _jobId, uint256 _fee, address _link, address _priceFeed) ERC20("GreenDeFiToken", "GDT") {
-        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _setupRole(ADMIN_ROLE, msg.sender);
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(ADMIN_ROLE, msg.sender);
 
-        setChainlinkToken(_link);
-        oracle = _oracle;
+        _setChainlinkToken(_link);
+        _setChainlinkOracle(_oracle);
         jobId = stringToBytes32(_jobId);
         fee = _fee;
         priceFeed = AggregatorV3Interface(_priceFeed);
@@ -98,18 +98,37 @@ contract GreenDeFiProtocol is AccessControl, ERC20, ChainlinkClient {
         emit MilestoneFunded(projectId, milestoneId, msg.value, msg.sender);
     }
 
-    function requestMilestoneVerification(uint256 projectId, uint256 milestoneId, string memory data) internal {
-        Chainlink.Request memory request = buildChainlinkRequest(jobId, address(this), this.fulfillMilestoneVerification.selector);
-        request.add("get", data);
-        request.add("path", "achieved");
-
-        request.addUint("projectId", projectId);
-        request.addUint("milestoneId", milestoneId);
-
-        sendChainlinkRequestTo(oracle, request, fee);
+   function requestMilestoneVerification(uint256 projectId, uint256 milestoneId, string memory data) internal {
+    Chainlink.Request memory request = _buildChainlinkRequest(jobId, address(this), this.fulfillMilestoneVerification.selector);
+    
+    // Convert string data to bytes32 (truncate if longer than 32 bytes)
+    bytes32 dataBytes32;
+    if (bytes(data).length > 32) {
+        dataBytes32 = bytes32(uint256(keccak256(abi.encodePacked(data))));
+    } else {
+        assembly {
+            dataBytes32 := mload(add(data, 32))
+        }
     }
 
-    function fulfillMilestoneVerification(bytes32 _requestId, bool _achieved, uint256 projectId, uint256 milestoneId) public recordChainlinkFulfillment(_requestId) {
+    // Directly assign bytes32 data to the request
+    request.add("get", abi.encode(dataBytes32)); // encode the bytes32 data
+    request.add("path", "achieved");
+
+    // Convert uint to string for Chainlink request
+    string memory projectIdStr = uintToString(projectId);
+    string memory milestoneIdStr = uintToString(milestoneId);
+
+    request.add("projectId", projectIdStr);
+    request.add("milestoneId", milestoneIdStr);
+
+    _sendChainlinkRequest(request, fee);
+    }
+
+    function fulfillMilestoneVerification(bytes32 _requestId, bool _achieved) public recordChainlinkFulfillment(_requestId) {
+        // Extract projectId and milestoneId from the requestId or use other mechanisms to track the request context
+        (uint256 projectId, uint256 milestoneId) = extractProjectAndMilestone(_requestId);
+        
         Project storage project = projects[projectId];
         Milestone storage milestone = project.milestones[milestoneId];
         require(!milestone.achieved, "Milestone already achieved");
@@ -162,7 +181,7 @@ contract GreenDeFiProtocol is AccessControl, ERC20, ChainlinkClient {
         payable(msg.sender).transfer(reward);
     }
 
-    function getProject(uint256 projectId) public view returns (string memory, uint256, uint256, address, bool, Milestone[] memory) {
+        function getProject(uint256 projectId) public view returns (string memory, uint256, uint256, address, bool, Milestone[] memory) {
         Project storage project = projects[projectId];
         return (project.name, project.targetAmount, project.currentAmount, project.creator, project.funded, project.milestones);
     }
@@ -190,5 +209,28 @@ contract GreenDeFiProtocol is AccessControl, ERC20, ChainlinkClient {
         assembly {
             result := mload(add(source, 32))
         }
+    }
+
+    function uintToString(uint v) internal pure returns (string memory str) {
+        uint maxlength = 100;
+        bytes memory reversed = new bytes(maxlength);
+        uint i = 0;
+        while (v != 0) {
+            uint remainder = v % 10;
+            v = v / 10;
+            reversed[i++] = bytes1(uint8(48 + remainder));
+        }
+        bytes memory s = new bytes(i);
+        for (uint j = 0; j < i; j++) {
+            s[j] = reversed[i - j - 1];
+        }
+        str = string(s);
+    }
+
+    function extractProjectAndMilestone(bytes32 _requestId) internal pure returns (uint256 projectId, uint256 milestoneId) {
+        // Implement logic to extract projectId and milestoneId from the requestId or another mapping
+        // This is just a placeholder function and needs to be implemented according to your logic
+        projectId = 0;
+        milestoneId = 0;
     }
 }
