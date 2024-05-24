@@ -26,9 +26,9 @@ function App() {
   const loadBlockchainData = async () => {
     try {
       // Connect to the Arbitrum testnet
-      const provider = new ethers.providers.JsonRpcProvider('https://rinkeby.arbitrum.io/rpc');
+      const provider = new ethers.providers.JsonRpcProvider('https://sepolia-rollup.arbitrum.io/rpc');
       const signer = provider.getSigner();
-      const contractAddress = 'YOUR_CONTRACT_ADDRESS'; // Replace with your contract address
+      const contractAddress = '0x9b8A2B24FAE25811Aa2EB28d24393F7c1930aD65';
       const contractAbi = GreenDeFiProtocol.abi;
       const contract = new ethers.Contract(contractAddress, contractAbi, signer);
 
